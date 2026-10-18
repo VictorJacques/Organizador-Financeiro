@@ -207,7 +207,14 @@ export default function App() {
       await signInWithPopup(auth, googleProvider);
     } catch (err: any) {
       console.error('Login error:', err);
-      if (err.code !== 'auth/popup-closed-by-user') {
+      if (err.code === 'auth/unauthorized-domain') {
+        const domain = window.location.hostname;
+        showToast(
+          `Domínio não autorizado: adicione "${domain}" nos Domínios Autorizados do Firebase Console.`
+        );
+      } else if (err.code === 'auth/popup-blocked') {
+        showToast('O navegador bloqueou a janela de login. Por favor, permita pop-ups.');
+      } else if (err.code !== 'auth/popup-closed-by-user') {
         showToast('Não foi possível entrar com o Google.');
       }
     }
