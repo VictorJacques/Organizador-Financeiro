@@ -320,19 +320,22 @@ export default function App() {
 
   // Toggle paid status
   const handleTogglePaid = (id: string) => {
-    let targetExpense: Expense | undefined;
+    // Find the expense synchronously before state updater
+    const existingExpense = currentMonthData.expenses.find((exp) => exp.id === id);
+    if (!existingExpense) return;
 
+    const nextState = !existingExpense.isPaid;
+    const targetExpense: Expense = {
+      ...existingExpense,
+      isPaid: nextState,
+    };
+
+    // 1. Optimistic update
     setDatabase((prev) => {
       const existing = getOrCreateMonth(prev, currentMonthKey);
-      const updatedExpenses = existing.expenses.map((exp) => {
-        if (exp.id === id) {
-          const nextState = !exp.isPaid;
-          targetExpense = { ...exp, isPaid: nextState };
-          showToast(nextState ? `Marcado como pago!` : 'Marcado como pendente.');
-          return targetExpense;
-        }
-        return exp;
-      });
+      const updatedExpenses = existing.expenses.map((exp) =>
+        exp.id === id ? targetExpense : exp
+      );
 
       return {
         ...prev,
@@ -346,11 +349,14 @@ export default function App() {
       };
     });
 
-    // Cloud update if logged in
-    if (user && targetExpense) {
-      saveExpense(user.uid, currentMonthKey, targetExpense)
-        .catch((err) => console.error('Cloud saveExpense error:', err));
+    // 2. Cloud update if logged in
+    if (user) {
+      saveExpense(user.uid, currentMonthKey, targetExpense).catch((err) =>
+        console.error('Cloud saveExpense error:', err)
+      );
     }
+
+    showToast(nextState ? 'Marcado como pago!' : 'Marcado como pendente.');
   };
 
   // Save edited expense
