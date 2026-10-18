@@ -1,0 +1,127 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with global settings and default salary",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "defaultSalary": {
+          "type": "number",
+          "description": "Default net salary for newly created months"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["userId", "defaultSalary"]
+    },
+    "MonthSummary": {
+      "title": "MonthSummary",
+      "description": "Monthly income and salary settings for a given YYYY-MM",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID"
+        },
+        "monthKey": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}$",
+          "description": "The month in YYYY-MM format"
+        },
+        "salary": {
+          "type": "number",
+          "description": "Net salary for this specific month"
+        },
+        "additionalIncome": {
+          "type": "number",
+          "description": "Extra income or bonus for this month"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["userId", "monthKey", "salary", "additionalIncome"]
+    },
+    "ExpenseItem": {
+      "title": "ExpenseItem",
+      "description": "A single monthly expense entry",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the expense"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID"
+        },
+        "monthKey": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}$",
+          "description": "Month in YYYY-MM format"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Name or description of the expense"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount in BRL"
+        },
+        "dueDay": {
+          "type": "number",
+          "description": "Due day of month (1-31)"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Moradia",
+            "Contas",
+            "Alimentação",
+            "Transporte",
+            "Saúde",
+            "Lazer",
+            "Educação",
+            "Outros"
+          ],
+          "description": "Category of the expense"
+        },
+        "isPaid": {
+          "type": "boolean",
+          "description": "Payment status"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "userId", "monthKey", "title", "amount", "category", "isPaid"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and settings"
+    },
+    "/users/{userId}/months/{monthKey}": {
+      "schema": "MonthSummary",
+      "description": "Month summary containing salary and extra income"
+    },
+    "/users/{userId}/expenses/{expenseId}": {
+      "schema": "ExpenseItem",
+      "description": "User expenses for each month"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Controle de Salário e Despesas",
+  "description": "Gerenciador simples e direto para controlar seu salário, despesas mensais e saldo sem complicação.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
