@@ -4,13 +4,9 @@ import {
   setDoc,
   deleteDoc,
   onSnapshot,
-  query,
-  getDocs,
-  where,
-  writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './config';
-import { Expense, ExpenseCategory, MonthData, AppDatabase } from '../types';
+import { Expense, ExpenseCategory, Income, MonthData, AppDatabase } from '../types';
 
 export interface RemoteUserData {
   months: Record<string, MonthData>;
@@ -22,14 +18,14 @@ export interface RemoteUserData {
  */
 export function subscribeToUserExpenses(
   userId: string,
-  onUpdate: (expenses: Expense[]) => void,
+  onUpdate: (expenses: (Expense & { monthKey?: string })[]) => void,
   onError?: (err: Error) => void
 ) {
   const expensesRef = collection(db, 'users', userId, 'expenses');
   return onSnapshot(
     expensesRef,
     (snapshot) => {
-      const expenses: Expense[] = [];
+      const expenses: (Expense & { monthKey?: string })[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         expenses.push({
@@ -40,9 +36,8 @@ export function subscribeToUserExpenses(
           category: data.category as ExpenseCategory,
           isPaid: Boolean(data.isPaid),
           createdAt: data.createdAt || new Date().toISOString(),
-          // Custom property to group by month
           ...(data.monthKey ? { monthKey: data.monthKey } : {}),
-        } as Expense & { monthKey?: string });
+        });
       });
       onUpdate(expenses);
     },
@@ -54,7 +49,77 @@ export function subscribeToUserExpenses(
 }
 
 /**
- * Listen to all month summaries (salary & additional income) of a user
+ * Listen to all incomes of a user and invoke callback on real-time update
+ */
+export function subscribeToUserIncomes(
+  userId: string,
+  onUpdate: (incomes: (Income & { monthKey?: string })[]) => void,
+  onError?: (err: Error) => void
+) {
+  const incomesRef = collection(db, 'users', userId, 'incomes');
+  return onSnapshot(
+    incomesRef,
+    (snapshot) => {
+      const incomes: (Income & { monthKey?: string })[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        incomes.push({
+          id: data.id || docSnap.id,
+          title: data.title,
+          amount: Number(data.amount) || 0,
+          createdAt: data.createdAt || new Date().toISOString(),
+          ...(data.monthKey ? { monthKey: data.monthKey } : {}),
+        });
+      });
+      onUpdate(incomes);
+    },
+    (error) => {
+      if (onError) onError(error);
+      handleFirestoreError(error, OperationType.LIST, `users/${userId}/incomes`);
+    }
+  );
+}
+
+/**
+ * Save a single income to Firestore
+ */
+export async function saveIncome(
+  userId: string,
+  monthKey: string,
+  income: Income
+): Promise<void> {
+  const path = `users/${userId}/incomes/${income.id}`;
+  try {
+    const docRef = doc(db, 'users', userId, 'incomes', income.id);
+    const payload: Record<string, any> = {
+      id: income.id,
+      userId,
+      monthKey,
+      title: income.title.slice(0, 120),
+      amount: Math.max(0, income.amount),
+      createdAt: income.createdAt || new Date().toISOString(),
+    };
+    await setDoc(docRef, payload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Delete a single income from Firestore
+ */
+export async function deleteIncome(userId: string, incomeId: string): Promise<void> {
+  const path = `users/${userId}/incomes/${incomeId}`;
+  try {
+    const docRef = doc(db, 'users', userId, 'incomes', incomeId);
+    await deleteDoc(docRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Listen to all month summaries (legacy salary & additional income) of a user
  */
 export function subscribeToUserMonths(
   userId: string,
@@ -177,13 +242,20 @@ export async function migrateLocalDataToCloud(
 
     // 2. Iterate each month
     for (const [monthKey, monthData] of Object.entries(localDb.months)) {
-      // Save month summary
-      await saveMonthSummary(
-        userId,
-        monthKey,
-        monthData.salary,
-        monthData.additionalIncome
-      );
+      // Save incomes
+      if (monthData.incomes && monthData.incomes.length > 0) {
+        for (const inc of monthData.incomes) {
+          await saveIncome(userId, monthKey, inc);
+        }
+      } else if (monthData.salary && monthData.salary > 0) {
+        // Fallback for legacy
+        await saveIncome(userId, monthKey, {
+          id: 'inc-sal-' + monthKey,
+          title: 'Salário Principal',
+          amount: monthData.salary,
+          createdAt: new Date().toISOString(),
+        });
+      }
 
       // Save expenses
       for (const exp of monthData.expenses) {

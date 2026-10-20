@@ -1,4 +1,4 @@
-import { AppDatabase, Expense, MonthData } from '../types';
+import { AppDatabase, Expense, Income, MonthData } from '../types';
 import { getCurrentMonthKey } from './formatters';
 
 const STORAGE_KEY = 'controle_salario_despesas_v1';
@@ -58,8 +58,14 @@ export function getDefaultDatabase(): AppDatabase {
     defaultSalary: 3800.0,
     months: {
       [currentKey]: {
-        salary: 3800.0,
-        additionalIncome: 0,
+        incomes: [
+          {
+            id: 'inc-1',
+            title: 'Salário Principal',
+            amount: 3800.0,
+            createdAt: new Date().toISOString(),
+          },
+        ],
         expenses: sampleExpenses,
       },
     },
@@ -94,12 +100,50 @@ export function saveDatabase(data: AppDatabase): void {
 }
 
 export function getOrCreateMonth(db: AppDatabase, monthKey: string): MonthData {
-  if (db.months[monthKey]) {
-    return db.months[monthKey];
+  const existing = db.months[monthKey];
+  if (existing) {
+    let incomes = existing.incomes || [];
+    // Migrate legacy salary/additionalIncome fields if incomes is empty
+    if (incomes.length === 0 && (existing.salary || existing.additionalIncome)) {
+      incomes = [];
+      if (existing.salary && existing.salary > 0) {
+        incomes.push({
+          id: 'inc-sal-' + monthKey,
+          title: 'Salário Principal',
+          amount: existing.salary,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      if (existing.additionalIncome && existing.additionalIncome > 0) {
+        incomes.push({
+          id: 'inc-extra-' + monthKey,
+          title: 'Renda Extra',
+          amount: existing.additionalIncome,
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+    return {
+      ...existing,
+      incomes,
+      expenses: existing.expenses || [],
+    };
   }
+
+  const initialIncomes: Income[] =
+    db.defaultSalary > 0
+      ? [
+          {
+            id: 'inc-' + Date.now(),
+            title: 'Salário Principal',
+            amount: db.defaultSalary,
+            createdAt: new Date().toISOString(),
+          },
+        ]
+      : [];
+
   return {
-    salary: db.defaultSalary || 0,
-    additionalIncome: 0,
+    incomes: initialIncomes,
     expenses: [],
   };
 }

@@ -1,160 +1,82 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Wallet,
   TrendingDown,
   PiggyBank,
   Edit2,
-  Check,
-  X,
-  PlusCircle,
+  Plus,
   AlertTriangle,
+  ArrowDownLeft,
 } from 'lucide-react';
+import { Income } from '../types';
 import { formatCurrency } from '../utils/formatters';
 
 interface FinancialSummaryProps {
-  salary: number;
-  additionalIncome: number;
+  incomes: Income[];
   totalExpenses: number;
   paidExpenses: number;
   pendingExpenses: number;
-  onUpdateSalary: (newSalary: number, newAdditionalIncome: number) => void;
+  onOpenIncomesModal: () => void;
 }
 
 export const FinancialSummary: React.FC<FinancialSummaryProps> = ({
-  salary,
-  additionalIncome,
+  incomes,
   totalExpenses,
   paidExpenses,
   pendingExpenses,
-  onUpdateSalary,
+  onOpenIncomesModal,
 }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [salaryInput, setSalaryInput] = useState(salary.toString());
-  const [extraInput, setExtraInput] = useState(additionalIncome.toString());
-  const [showExtraField, setShowExtraField] = useState(additionalIncome > 0);
-
-  const totalIncome = salary + additionalIncome;
+  const totalIncome = incomes.reduce((acc, curr) => acc + curr.amount, 0);
   const balance = totalIncome - totalExpenses;
   const percentageUsed = totalIncome > 0 ? (totalExpenses / totalIncome) * 100 : 0;
   const roundedPercent = Math.min(Math.round(percentageUsed), 999);
-
-  const handleStartEditing = () => {
-    setSalaryInput(salary > 0 ? salary.toString() : '');
-    setExtraInput(additionalIncome > 0 ? additionalIncome.toString() : '');
-    setIsEditing(true);
-  };
-
-  const handleSave = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const parsedSalary = parseFloat(salaryInput.replace(',', '.')) || 0;
-    const parsedExtra = parseFloat(extraInput.replace(',', '.')) || 0;
-    onUpdateSalary(Math.max(0, parsedSalary), Math.max(0, parsedExtra));
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setIsEditing(false);
-  };
 
   return (
     <div className="space-y-3">
       {/* 3 Main Highlight Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Card 1: Salário / Entradas */}
+        {/* Card 1: Entradas */}
         <div className="bg-white rounded-xl p-4 border border-zinc-200/80 shadow-xs relative flex flex-col justify-between">
           <div className="flex items-center justify-between text-zinc-600 mb-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Salário / Entradas
+              Entradas
             </span>
             <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700">
-              <Wallet className="w-4 h-4" />
+              <ArrowDownLeft className="w-4 h-4" />
             </div>
           </div>
 
-          {!isEditing ? (
-            <div>
-              <div className="flex items-baseline justify-between gap-1">
-                <span className="text-2xl font-bold text-zinc-900 tracking-tight">
-                  {formatCurrency(totalIncome)}
-                </span>
-                <button
-                  onClick={handleStartEditing}
-                  className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-md transition-colors cursor-pointer"
-                  title="Alterar valor do salário deste mês"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="text-xs text-zinc-500 mt-1 flex items-center justify-between">
-                <span>Líquido: {formatCurrency(salary)}</span>
-                {additionalIncome > 0 && (
-                  <span className="text-emerald-700 font-medium">
-                    +{formatCurrency(additionalIncome)} extra
-                  </span>
-                )}
-              </div>
+          <div>
+            <div className="flex items-baseline justify-between gap-1">
+              <span className="text-2xl font-bold text-zinc-900 tracking-tight">
+                {formatCurrency(totalIncome)}
+              </span>
+              <button
+                onClick={onOpenIncomesModal}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-1 rounded-md transition-colors cursor-pointer"
+                title="Adicionar ou editar entradas deste mês"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Gerenciar</span>
+              </button>
             </div>
-          ) : (
-            <form onSubmit={handleSave} className="mt-1 space-y-2">
-              <div>
-                <label className="text-2xs text-zinc-500 font-medium block">
-                  Salário Líquido (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  autoFocus
-                  value={salaryInput}
-                  onChange={(e) => setSalaryInput(e.target.value)}
-                  placeholder="Ex: 3500.00"
-                  className="w-full text-base font-semibold px-2 py-1 bg-zinc-50 border border-zinc-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
 
-              {showExtraField ? (
-                <div>
-                  <label className="text-2xs text-zinc-500 font-medium block">
-                    Renda Extra / Bônus (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={extraInput}
-                    onChange={(e) => setExtraInput(e.target.value)}
-                    placeholder="Ex: 300.00"
-                    className="w-full text-sm px-2 py-1 bg-zinc-50 border border-zinc-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
+            <div className="text-xs text-zinc-500 mt-1 flex items-center justify-between">
+              {incomes.length === 0 ? (
+                <span className="text-zinc-400">Nenhuma entrada</span>
+              ) : incomes.length === 1 ? (
+                <span className="truncate max-w-[200px]">{incomes[0].title}</span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowExtraField(true)}
-                  className="text-xs text-emerald-700 hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <PlusCircle className="w-3 h-3" /> Adicionar renda extra
-                </button>
+                <span>{incomes.length} fontes de entrada</span>
               )}
 
-              <div className="flex gap-1.5 pt-1">
-                <button
-                  type="submit"
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-1 px-2 rounded-md flex items-center justify-center gap-1 transition-colors cursor-pointer"
-                >
-                  <Check className="w-3 h-3" /> Salvar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs py-1 px-2 rounded-md transition-colors cursor-pointer"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            </form>
-          )}
+              {incomes.length > 0 && (
+                <span className="text-2xs text-emerald-600 font-medium">
+                  {formatCurrency(totalIncome)}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Card 2: Total de Despesas */}
@@ -228,12 +150,12 @@ export const FinancialSummary: React.FC<FinancialSummaryProps> = ({
               {balance >= 0 ? (
                 <span className="text-emerald-700">
                   {totalIncome > 0
-                    ? `${100 - Math.round((totalExpenses / totalIncome) * 100)}% do salário disponível`
-                    : 'Defina seu salário acima'}
+                    ? `${100 - Math.round((totalExpenses / totalIncome) * 100)}% das entradas disponíveis`
+                    : 'Adicione suas entradas'}
                 </span>
               ) : (
                 <span className="text-rose-600 font-medium">
-                  Despesas ultrapassaram o salário
+                  Despesas ultrapassaram as entradas
                 </span>
               )}
             </div>

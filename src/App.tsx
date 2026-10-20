@@ -10,7 +10,8 @@ import { AddExpenseForm } from './components/AddExpenseForm';
 import { ExpenseList } from './components/ExpenseList';
 import { EditExpenseModal } from './components/EditExpenseModal';
 import { BackupModal } from './components/BackupModal';
-import { Expense, ExpenseCategory, AppDatabase, MonthData } from './types';
+import { IncomesModal } from './components/IncomesModal';
+import { Expense, ExpenseCategory, Income, AppDatabase, MonthData } from './types';
 import {
   loadDatabase,
   saveDatabase,
@@ -31,13 +32,15 @@ import {
 } from 'firebase/auth';
 import {
   subscribeToUserExpenses,
+  subscribeToUserIncomes,
   subscribeToUserMonths,
-  saveMonthSummary,
   saveExpense,
+  saveIncome,
   deleteExpense as deleteFirestoreExpense,
+  deleteIncome as deleteFirestoreIncome,
   migrateLocalDataToCloud,
 } from './firebase/firestoreService';
-import { Check, Cloud, AlertCircle } from 'lucide-react';
+import { Check, Cloud } from 'lucide-react';
 
 export default function App() {
   const [database, setDatabase] = useState<AppDatabase>(() => loadDatabase());
@@ -46,6 +49,7 @@ export default function App() {
   );
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isIncomesModalOpen, setIsIncomesModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Authentication & Cloud Sync
@@ -78,7 +82,9 @@ export default function App() {
       setUser(currentUser);
       if (currentUser) {
         setIsSyncing(true);
-        showToast(`Conectado à nuvem como ${currentUser.displayName || currentUser.email}!`);
+        showToast(
+          `Conectado à nuvem como ${currentUser.displayName || currentUser.email}!`
+        );
       } else {
         setCloudSyncedOnce(false);
       }
@@ -93,24 +99,25 @@ export default function App() {
 
     let remoteMonthsMap: Record<string, { salary: number; additionalIncome: number }> = {};
     let remoteExpensesList: (Expense & { monthKey?: string })[] = [];
+    let remoteIncomesList: (Income & { monthKey?: string })[] = [];
 
     const updateCombinedData = () => {
       setDatabase((prev) => {
         const hasRemoteData =
-          Object.keys(remoteMonthsMap).length > 0 || remoteExpensesList.length > 0;
+          Object.keys(remoteMonthsMap).length > 0 ||
+          remoteExpensesList.length > 0 ||
+          remoteIncomesList.length > 0;
 
-        // If the user already has data stored in their Google/Cloud account,
-        // use their cloud data exclusively (do not mix with local sample data from other PCs)
         const newMonths: Record<string, MonthData> = hasRemoteData
           ? {}
           : { ...prev.months };
 
         // 1. Group remote expenses by month
-        const grouped: Record<string, Expense[]> = {};
+        const groupedExpenses: Record<string, Expense[]> = {};
         remoteExpensesList.forEach((exp) => {
           const mKey = exp.monthKey || currentMonthKey;
-          if (!grouped[mKey]) grouped[mKey] = [];
-          grouped[mKey].push({
+          if (!groupedExpenses[mKey]) groupedExpenses[mKey] = [];
+          groupedExpenses[mKey].push({
             id: exp.id,
             title: exp.title,
             amount: exp.amount,
@@ -121,42 +128,53 @@ export default function App() {
           });
         });
 
-        // 2. Populate months from remote summaries
-        Object.entries(remoteMonthsMap).forEach(([mKey, summary]) => {
-          newMonths[mKey] = {
-            salary: summary.salary,
-            additionalIncome: summary.additionalIncome,
-            expenses: grouped[mKey] || [],
-          };
+        // 2. Group remote incomes by month
+        const groupedIncomes: Record<string, Income[]> = {};
+        remoteIncomesList.forEach((inc) => {
+          const mKey = inc.monthKey || currentMonthKey;
+          if (!groupedIncomes[mKey]) groupedIncomes[mKey] = [];
+          groupedIncomes[mKey].push({
+            id: inc.id,
+            title: inc.title,
+            amount: inc.amount,
+            createdAt: inc.createdAt,
+          });
         });
 
-        // 3. Ensure any month that has expenses is present in newMonths
-        Object.keys(grouped).forEach((mKey) => {
-          if (!newMonths[mKey]) {
-            newMonths[mKey] = {
-              salary: prev.defaultSalary || 0,
-              additionalIncome: 0,
-              expenses: grouped[mKey],
-            };
-          } else {
-            newMonths[mKey].expenses = grouped[mKey];
+        // 3. Populate months from remote summaries and grouped data
+        const allKnownMonthKeys = new Set([
+          ...Object.keys(remoteMonthsMap),
+          ...Object.keys(groupedExpenses),
+          ...Object.keys(groupedIncomes),
+          currentMonthKey,
+        ]);
+
+        allKnownMonthKeys.forEach((mKey) => {
+          let incomesForMonth = groupedIncomes[mKey] || [];
+          // If no incomes stored but remote has legacy salary
+          if (incomesForMonth.length === 0 && remoteMonthsMap[mKey]?.salary) {
+            incomesForMonth = [
+              {
+                id: 'inc-legacy-' + mKey,
+                title: 'Salário Principal',
+                amount: remoteMonthsMap[mKey].salary,
+                createdAt: new Date().toISOString(),
+              },
+            ];
           }
+
+          newMonths[mKey] = {
+            incomes: incomesForMonth,
+            expenses: groupedExpenses[mKey] || [],
+          };
         });
 
-        // 4. Ensure current active month exists
-        if (!newMonths[currentMonthKey]) {
-          newMonths[currentMonthKey] = {
-            salary: prev.defaultSalary || 0,
-            additionalIncome: 0,
-            expenses: [],
-          };
-        }
-
-        // 5. Initial migration only if the cloud account is completely fresh and empty
+        // 4. Initial migration only if the cloud account is completely fresh and empty
         if (
           !cloudSyncedOnce &&
           Object.keys(remoteMonthsMap).length === 0 &&
-          remoteExpensesList.length === 0
+          remoteExpensesList.length === 0 &&
+          remoteIncomesList.length === 0
         ) {
           migrateLocalDataToCloud(user.uid, user.email, dbRef.current)
             .then(() => {
@@ -195,9 +213,19 @@ export default function App() {
       (err) => console.error(err)
     );
 
+    const unsubIncomes = subscribeToUserIncomes(
+      user.uid,
+      (incomes) => {
+        remoteIncomesList = incomes;
+        updateCombinedData();
+      },
+      (err) => console.error(err)
+    );
+
     return () => {
       unsubMonths();
       unsubExpenses();
+      unsubIncomes();
     };
   }, [user, cloudSyncedOnce, currentMonthKey]);
 
@@ -248,32 +276,88 @@ export default function App() {
 
   const pendingExpenses = totalExpenses - paidExpenses;
 
-  // Update salary
-  const handleUpdateSalary = (newSalary: number, newAdditionalIncome: number) => {
-    // 1. Optimistic update
+  // Add Income
+  const handleAddIncome = (title: string, amount: number) => {
+    const newIncome: Income = {
+      id: 'inc-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+      title,
+      amount,
+      createdAt: new Date().toISOString(),
+    };
+
     setDatabase((prev) => {
       const existing = getOrCreateMonth(prev, currentMonthKey);
       return {
         ...prev,
-        defaultSalary: newSalary > 0 ? newSalary : prev.defaultSalary,
         months: {
           ...prev.months,
           [currentMonthKey]: {
             ...existing,
-            salary: newSalary,
-            additionalIncome: newAdditionalIncome,
+            incomes: [...existing.incomes, newIncome],
           },
         },
       };
     });
 
-    // 2. Cloud update if logged in
     if (user) {
-      saveMonthSummary(user.uid, currentMonthKey, newSalary, newAdditionalIncome)
-        .catch((err) => console.error('Cloud saveMonthSummary error:', err));
+      saveIncome(user.uid, currentMonthKey, newIncome).catch((err) =>
+        console.error('Cloud saveIncome error:', err)
+      );
     }
 
-    showToast('Salário atualizado!');
+    showToast(`Entrada "${title}" adicionada.`);
+  };
+
+  // Edit Income
+  const handleEditIncome = (updatedIncome: Income) => {
+    setDatabase((prev) => {
+      const existing = getOrCreateMonth(prev, currentMonthKey);
+      return {
+        ...prev,
+        months: {
+          ...prev.months,
+          [currentMonthKey]: {
+            ...existing,
+            incomes: existing.incomes.map((i) =>
+              i.id === updatedIncome.id ? updatedIncome : i
+            ),
+          },
+        },
+      };
+    });
+
+    if (user) {
+      saveIncome(user.uid, currentMonthKey, updatedIncome).catch((err) =>
+        console.error('Cloud saveIncome error:', err)
+      );
+    }
+
+    showToast('Entrada atualizada.');
+  };
+
+  // Delete Income
+  const handleDeleteIncome = (incomeId: string) => {
+    setDatabase((prev) => {
+      const existing = getOrCreateMonth(prev, currentMonthKey);
+      return {
+        ...prev,
+        months: {
+          ...prev.months,
+          [currentMonthKey]: {
+            ...existing,
+            incomes: existing.incomes.filter((i) => i.id !== incomeId),
+          },
+        },
+      };
+    });
+
+    if (user) {
+      deleteFirestoreIncome(user.uid, incomeId).catch((err) =>
+        console.error('Cloud deleteIncome error:', err)
+      );
+    }
+
+    showToast('Entrada removida.');
   };
 
   // Add new expense
@@ -294,7 +378,6 @@ export default function App() {
       createdAt: new Date().toISOString(),
     };
 
-    // 1. Optimistic update
     setDatabase((prev) => {
       const existing = getOrCreateMonth(prev, currentMonthKey);
       return {
@@ -309,10 +392,10 @@ export default function App() {
       };
     });
 
-    // 2. Cloud update if logged in
     if (user) {
-      saveExpense(user.uid, currentMonthKey, newExpense)
-        .catch((err) => console.error('Cloud saveExpense error:', err));
+      saveExpense(user.uid, currentMonthKey, newExpense).catch((err) =>
+        console.error('Cloud saveExpense error:', err)
+      );
     }
 
     showToast(`"${newExpData.title}" adicionado.`);
@@ -320,7 +403,6 @@ export default function App() {
 
   // Toggle paid status
   const handleTogglePaid = (id: string) => {
-    // Find the expense synchronously before state updater
     const existingExpense = currentMonthData.expenses.find((exp) => exp.id === id);
     if (!existingExpense) return;
 
@@ -330,7 +412,6 @@ export default function App() {
       isPaid: nextState,
     };
 
-    // 1. Optimistic update
     setDatabase((prev) => {
       const existing = getOrCreateMonth(prev, currentMonthKey);
       const updatedExpenses = existing.expenses.map((exp) =>
@@ -349,7 +430,6 @@ export default function App() {
       };
     });
 
-    // 2. Cloud update if logged in
     if (user) {
       saveExpense(user.uid, currentMonthKey, targetExpense).catch((err) =>
         console.error('Cloud saveExpense error:', err)
@@ -379,10 +459,10 @@ export default function App() {
       };
     });
 
-    // Cloud update if logged in
     if (user) {
-      saveExpense(user.uid, currentMonthKey, updated)
-        .catch((err) => console.error('Cloud saveExpense error:', err));
+      saveExpense(user.uid, currentMonthKey, updated).catch((err) =>
+        console.error('Cloud saveExpense error:', err)
+      );
     }
 
     showToast('Despesa atualizada.');
@@ -406,10 +486,10 @@ export default function App() {
       };
     });
 
-    // Cloud update if logged in
     if (user) {
-      deleteFirestoreExpense(user.uid, id)
-        .catch((err) => console.error('Cloud deleteExpense error:', err));
+      deleteFirestoreExpense(user.uid, id).catch((err) =>
+        console.error('Cloud deleteExpense error:', err)
+      );
     }
 
     showToast('Despesa excluída.');
@@ -420,19 +500,25 @@ export default function App() {
     const prevMonthKey = getAdjacentMonthKey(currentMonthKey, -1);
     const prevMonthData = database.months[prevMonthKey];
 
-    if (!prevMonthData || prevMonthData.expenses.length === 0) {
+    if (!prevMonthData || (prevMonthData.expenses.length === 0 && (!prevMonthData.incomes || prevMonthData.incomes.length === 0))) {
       alert(
-        `Não foram encontradas despesas em ${formatMonthName(
+        `Não foram encontradas despesas ou entradas em ${formatMonthName(
           prevMonthKey
         )} para copiar.`
       );
       return;
     }
 
-    const copiedExpenses: Expense[] = prevMonthData.expenses.map((exp) => ({
+    const copiedExpenses: Expense[] = (prevMonthData.expenses || []).map((exp) => ({
       ...exp,
       id: 'exp-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
-      isPaid: false, // reset to unpaid for the new month
+      isPaid: false,
+      createdAt: new Date().toISOString(),
+    }));
+
+    const copiedIncomes: Income[] = (prevMonthData.incomes || []).map((inc) => ({
+      ...inc,
+      id: 'inc-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
       createdAt: new Date().toISOString(),
     }));
 
@@ -444,33 +530,29 @@ export default function App() {
           ...prev.months,
           [currentMonthKey]: {
             ...current,
-            salary: current.salary > 0 ? current.salary : prevMonthData.salary,
+            incomes: current.incomes.length > 0 ? current.incomes : copiedIncomes,
             expenses: [...copiedExpenses, ...current.expenses],
           },
         },
       };
     });
 
-    // Cloud update if logged in
     if (user) {
       copiedExpenses.forEach((exp) => {
         saveExpense(user.uid, currentMonthKey, exp).catch((err) =>
           console.error(err)
         );
       });
-      if (currentMonthData.salary === 0 && prevMonthData.salary > 0) {
-        saveMonthSummary(
-          user.uid,
-          currentMonthKey,
-          prevMonthData.salary,
-          0
-        ).catch((err) => console.error(err));
+      if (currentMonthData.incomes.length === 0) {
+        copiedIncomes.forEach((inc) => {
+          saveIncome(user.uid, currentMonthKey, inc).catch((err) =>
+            console.error(err)
+          );
+        });
       }
     }
 
-    showToast(
-      `${copiedExpenses.length} contas copiadas do mês anterior com status a pagar!`
-    );
+    showToast('Dados copiados do mês anterior!');
   };
 
   // Clear current month
@@ -478,6 +560,11 @@ export default function App() {
     if (user) {
       currentMonthData.expenses.forEach((exp) => {
         deleteFirestoreExpense(user.uid, exp.id).catch((err) =>
+          console.error(err)
+        );
+      });
+      currentMonthData.incomes.forEach((inc) => {
+        deleteFirestoreIncome(user.uid, inc.id).catch((err) =>
           console.error(err)
         );
       });
@@ -491,6 +578,7 @@ export default function App() {
           ...prev.months,
           [currentMonthKey]: {
             ...current,
+            incomes: [],
             expenses: [],
           },
         },
@@ -566,12 +654,11 @@ export default function App() {
 
         {/* Financial Summary */}
         <FinancialSummary
-          salary={currentMonthData.salary}
-          additionalIncome={currentMonthData.additionalIncome}
+          incomes={currentMonthData.incomes}
           totalExpenses={totalExpenses}
           paidExpenses={paidExpenses}
           pendingExpenses={pendingExpenses}
-          onUpdateSalary={handleUpdateSalary}
+          onOpenIncomesModal={() => setIsIncomesModalOpen(true)}
         />
 
         {/* Add Expense Form */}
@@ -598,6 +685,17 @@ export default function App() {
           </span>
         </div>
       </footer>
+
+      {/* Incomes Management Modal */}
+      <IncomesModal
+        isOpen={isIncomesModalOpen}
+        onClose={() => setIsIncomesModalOpen(false)}
+        incomes={currentMonthData.incomes}
+        onAddIncome={handleAddIncome}
+        onEditIncome={handleEditIncome}
+        onDeleteIncome={handleDeleteIncome}
+        monthName={formatMonthName(currentMonthKey)}
+      />
 
       {/* Edit Expense Modal */}
       <EditExpenseModal

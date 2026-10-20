@@ -8,6 +8,13 @@ export type ExpenseCategory =
   | 'Educação'
   | 'Outros';
 
+export interface Income {
+  id: string;
+  title: string;
+  amount: number;
+  createdAt: string;
+}
+
 export interface Expense {
   id: string;
   title: string;
@@ -19,9 +26,11 @@ export interface Expense {
 }
 
 export interface MonthData {
-  salary: number;
-  additionalIncome: number;
+  incomes: Income[];
   expenses: Expense[];
+  // Backwards compatibility
+  salary?: number;
+  additionalIncome?: number;
 }
 
 export interface AppDatabase {

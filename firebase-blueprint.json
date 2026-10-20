@@ -53,6 +53,40 @@
       },
       "required": ["userId", "monthKey", "salary", "additionalIncome"]
     },
+    "IncomeItem": {
+      "title": "IncomeItem",
+      "description": "A single monthly income entry",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the income"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user UID"
+        },
+        "monthKey": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}$",
+          "description": "Month in YYYY-MM format"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Name or description of the income source"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Amount in BRL"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        }
+      },
+      "required": ["id", "userId", "monthKey", "title", "amount"]
+    },
     "ExpenseItem": {
       "title": "ExpenseItem",
       "description": "A single monthly expense entry",
@@ -118,6 +152,10 @@
     "/users/{userId}/months/{monthKey}": {
       "schema": "MonthSummary",
       "description": "Month summary containing salary and extra income"
+    },
+    "/users/{userId}/incomes/{incomeId}": {
+      "schema": "IncomeItem",
+      "description": "User income entries for each month"
     },
     "/users/{userId}/expenses/{expenseId}": {
       "schema": "ExpenseItem",
